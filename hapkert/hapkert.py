@@ -108,13 +108,14 @@ class HapkeModel:
         self.material = material
         self.name = material.name
 
-    def _get_single_scattering_albedo(self, n, k, waves) -> np.ndarray:
+    def get_single_scattering_albedo(self, n, k, waves, grainsz, params=None) -> np.ndarray:
         """ Calculate the single scattering albedo for a single particle given a temperature and grain size. 
             Note: this is the single scattering albedo, not the reflectance. The reflectance is calculated using the HapkeModel.calculate_reflectance.
-            For a typical use case, you will not need to use this function, but it is sometimes useful to see the single scattering albedo so it is available here.
 
             n,k: 1darray: real and imaginary parts of the refractive index 
             waves: 1darray: wavelengths, must be in microns
+            grainsz: float: grain size in microns
+            params: dict: parameters for the single scattering albedo calculation. None needed for single particle model.
         """
 
         # get scattering and extinction coefficients miepython
@@ -124,13 +125,13 @@ class HapkeModel:
         w=qsca/qext
         return w
     
-    def calculate_reflectance(self, temp: float, grainsz: Union[float, astropy.units.Quantity], nearesttemp=True, waves: Union[np.ndarray, astropy.units.Quantity] = None) -> np.ndarray):
+    def calculate_reflectance(self, temp: float, grainsz: Union[float, astropy.units.Quantity], nearesttemp=True, waves: Union[np.ndarray, astropy.units.Quantity] = None, ssa_params:dict = None) -> np.ndarray):
         """ Calculate the reflectance spectrum for a given temperature and grain size. 
             temp: float: temperature in K
             grainsz: float or astropy quantity: grain size diameter -- must be in microns if float provided
             nearesttemp: bool: if True, will use the nearest temperature if exact match is not found
-            waves: 1darray or astropy.units.Quantity array: wavelengths to calculate reflectance for -- if None, will use the wavelengths from 
-                            the optical constant, if not units provided must be in microns
+            waves: 1darray or astropy.units.Quantity array: wavelengths to calculate reflectance for -- if None, will use the wavelengths from the optical constant, if not units provided must be in microns
+            ssa_params: dict: parameters for the single scattering albedo calculation. If None, will use default values.
         """
         nk = self.material.get_nk(temp, nearest=nearesttemp)
         fn = interpolate.interp1d(nk.wv_microns, nk.n) # interpolation functions for n and k
@@ -144,7 +145,7 @@ class HapkeModel:
             waves = nk.wv_microns
 
         # get single scattering albedo using scattering and extinction coefficients from miepython
-        w = self._get_single_scattering_albedo(fn(waves), fk(waves), waves)
+        w = self.get_single_scattering_albedo(fn(waves), fk(waves), waves, params=ssa_params)
     
 
 
@@ -185,40 +186,29 @@ class SlabModel(HapkeModel):
             Si is same as 5.31 but with 1/m instead of m (where m=n(1-jk)) -- inverse of a complex number!!!"""
         return np.array([self._Se(n[i]/(n[i]**2+k[i]**2), -k[i]/(n[i]**2+k[i]**2)) for wv in range(len(waves))])
     
-    def get_single_scattering_albedo(self, n, k, waves) -> np.ndarray:
+    def get_single_scattering_albedo(self, n, k, waves, grainsz, params) -> np.ndarray:
         """ Calculate the single scattering albedo for Hapke slab model.
 
-            temp: float: temperature in K
-            grainsz: float or astropy quantity: grain size diameter -- must be in microns if float provided
-            nearesttemp: bool: if True, will use the nearest temperature if exact match is not found
-            waves: 1darray or astropy.units.Quantity array: wavelengths to calculate reflectance for -- if None, will use the wavelengths from 
-                            the optical constant, if not units provided must be in microns
+            n,k: 1darray: real and imaginary parts of the refractive index 
+            waves: 1darray: wavelengths, must be in microns
+            grainsz: float: grain size in microns
+            ssa_params: dict: {'s': float (default=1e-16): default is very little scattering, }
         """
+        if ssa_params is None:
+            ssa_params = {'scattering_coeff': 1e-16} #very little scattering
+        
         # get Se, Si by directly integrating eq 5.36
         Se = self.get_Se(n,k, waves)
         Si = self.get_Si(n,k,waves)
-
-
-    def calculate_reflectance(self, temp: float, grainsz: Union[float, astropy.units.Quantity], nearesttemp=True, waves: Union[np.ndarray, astropy.units.Quantity] = None) -> np.ndarray):
-        """ Calculate the reflectance spectrum for a given temperature and grain size. 
-            temp: float: temperature in K
-            grainsz: float or astropy quantity: grain size diameter -- must be in microns if float provided
-            nearesttemp: bool: if True, will use the nearest temperature if exact match is not found
-            waves: 1darray or astropy.units.Quantity array: wavelengths to calculate reflectance for -- if None, will use the wavelengths from 
-                            the optical constant, if not units provided must be in microns
-        """
-        nk = self.material.get_nk(temp, nearest=nearesttemp)
-        fn = interpolate.interp1d(nk.wv_microns, nk.n) # interpolation functions for n and k
-        fk = interpolate.interp1d(nk.wv_microns, nk.k)
-        grainsz = grainsz.to(u.micron).value if isinstance(grainsz, astropy.units.Quantity) else grainsz
-        if isinstance(waves, astropy.units.Quantity):
-            waves = waves.to(u.micron).value
-        elif isinstance(waves, np.ndarray):
-            waves = waves
-        elif waves is None:
-            waves = nk.wv_microns
-
-        # get single scattering albedo using scattering and extinction coefficients from slab model approx.
-        w = self.get_single_scattering_albedo(fn(waves),fk(waves), waves)
+        
+        # hapke equation ??? (23 in paper) -- slab approximation
+        alpha = 4*np.pi*k/waves
+        s = ssa_params['scattering_coeff']
+    
+        ri=(1-np.sqrt(alpha/(alpha+s)))/(1+np.sqrt(alpha/(alpha+s))) # bihemispherical reflectance
+        Theta=(ri+np.exp(-np.sqrt(alpha*(alpha+s))*grainsz))/(1+ri*np.exp(-np.sqrt(alpha*(alpha+s))*grainsz))
+        w = Se+(1-Se)*(1-Si)*Theta/(1-Si*Theta)  # eqn ??
+        return w
+        
 
         
