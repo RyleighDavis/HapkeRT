@@ -146,7 +146,14 @@ class HapkeModel:
 
         # get single scattering albedo using scattering and extinction coefficients from miepython
         w = self.get_single_scattering_albedo(fn(waves), fk(waves), waves, params=ssa_params)
-    
+        
+        # convert single scattering albedo to reflectance (physical albedo eq 11.32)
+        lam=np.sqrt(1-w)
+        r0=(1-lam)/(1+lam)
+        alb=0.49*r0 + 0.196*r0**2 # using approximation (eq 11.33) for now.
+        #To Do: actually solve chandrasekhar equations here and solve eq 11.32!
+        return alb
+            
 
 
 
