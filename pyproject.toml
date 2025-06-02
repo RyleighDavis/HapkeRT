@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hapkert"
+version = "0.1.0"
+description = "A Python package for Hapke radiative transfer calculations"
+readme = "README.md"
+requires-python = ">=3.6"
+license = { text = "MIT" }
+authors = [
+    { name = "Ryleigh Davis", email = "rdavis@caltech.edu" }
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "miepython",
+    "pandas",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hapkert"]
